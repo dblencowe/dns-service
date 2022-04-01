@@ -1,4 +1,4 @@
-package main
+package service
 
 import (
 	"log"
@@ -12,28 +12,44 @@ const (
 	packetLen int = 512
 )
 
-func main() {
-	conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: udpPort})
+type DNSServer interface {
+	Listen()
+}
+
+type DNSService struct {
+	conn *net.UDPConn
+}
+
+type Packet struct {
+	addr    net.UDPAddr
+	message dnsmessage.Message
+}
+
+func (svc *DNSService) Listen() {
+	var err error
+	svc.conn, err = net.ListenUDP("udp", &net.UDPAddr{Port: udpPort})
 	chk(err)
 	log.Printf("[INFO] listening on port %d\n", udpPort)
-	defer conn.Close()
-
+	defer svc.conn.Close()
 	var lastAddress *net.UDPAddr
+
 	for {
 		buf := make([]byte, packetLen)
-		_, addr, err := conn.ReadFromUDP(buf)
+		_, addr, err := svc.conn.ReadFromUDP(buf)
 		chk(err)
 		var m dnsmessage.Message
 		err = m.Unpack(buf)
 		chk(err)
 		if m.Header.Response && lastAddress != nil {
+			log.Printf("sending response: %+v\n", m)
 			packed, err := m.Pack()
 			chk(err)
-			_, err = conn.WriteToUDP(packed, lastAddress)
+			_, err = svc.conn.WriteToUDP(packed, lastAddress)
 			chk(err)
 		} else {
+			log.Printf("received new question: %+v\n", m)
 			lastAddress = addr
-			go doQuery(conn, m)
+			go doQuery(svc.conn, m)
 		}
 	}
 }
