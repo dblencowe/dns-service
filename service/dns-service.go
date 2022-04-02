@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"log"
 	"net"
 
@@ -17,7 +18,8 @@ type DNSServer interface {
 }
 
 type DNSService struct {
-	conn *net.UDPConn
+	conn  *net.UDPConn
+	cache store
 }
 
 type Packet struct {
@@ -29,36 +31,64 @@ func (svc *DNSService) Listen() {
 	var err error
 	svc.conn, err = net.ListenUDP("udp", &net.UDPAddr{Port: udpPort})
 	chk(err)
+	svc.cache.data = make(map[string]entry)
 	log.Printf("[INFO] listening on port %d\n", udpPort)
 	defer svc.conn.Close()
-	var lastAddress *net.UDPAddr
 
 	for {
 		buf := make([]byte, packetLen)
 		_, addr, err := svc.conn.ReadFromUDP(buf)
-		chk(err)
+		if err != nil {
+			log.Println(err)
+			continue
+		}
 		var m dnsmessage.Message
 		err = m.Unpack(buf)
-		chk(err)
-		if m.Header.Response && lastAddress != nil {
-			log.Printf("sending response: %+v\n", m)
-			packed, err := m.Pack()
-			chk(err)
-			_, err = svc.conn.WriteToUDP(packed, lastAddress)
-			chk(err)
-		} else {
-			log.Printf("received new question: %+v\n", m)
-			lastAddress = addr
-			go doQuery(svc.conn, m)
+		if err != nil {
+			log.Println(err)
+			continue
 		}
+
+		if len(m.Questions) == 0 {
+			continue
+		}
+
+		log.Printf("received new question: %+v\n", m)
+		question := m.Questions[0].Name.String()
+		resp, ok := svc.cache.get(question)
+		if !ok {
+			log.Printf("no cached record for %s, fetching...\n", question)
+			resp, err = DoForwarderRequest(question)
+			chk(err)
+			svc.cache.set(question, *resp)
+		}
+
+		answer, err := toResource(resp)
+		chk(err)
+
+		go doQuery(svc.conn, Packet{
+			addr: *addr,
+			message: dnsmessage.Message{
+				Header:      m.Header,
+				Questions:   m.Questions,
+				Answers:     []dnsmessage.Resource{answer},
+				Authorities: m.Authorities,
+				Additionals: m.Additionals,
+			},
+		})
 	}
 }
 
-func doQuery(conn *net.UDPConn, m dnsmessage.Message) {
-	packed, err := m.Pack()
-	chk(err)
-	resolver := net.UDPAddr{IP: net.IP{1, 1, 1, 1}, Port: 53}
-	_, err = conn.WriteToUDP(packed, &resolver)
+func doQuery(conn *net.UDPConn, p Packet) {
+	packed, err := p.message.Pack()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	_, err = conn.WriteToUDP(packed, &p.addr)
+	if err != nil {
+		fmt.Println(err)
+	}
 }
 
 func chk(err error) {
