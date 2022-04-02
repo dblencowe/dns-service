@@ -2,9 +2,11 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"io/ioutil"
 	"net/http"
 
+	"golang.org/x/net/dns/dnsmessage"
 	"golang.org/x/net/http2"
 )
 
@@ -28,32 +30,38 @@ type forwarderResponse struct {
 	} `json:"Answer"`
 }
 
-func DoForwarderRequest(host string) (*request, error) {
+func DoForwarderRequest(host string) (*request, dnsmessage.RCode, error) {
 	transport := &http2.Transport{}
 	client := &http.Client{
 		Transport: transport,
 	}
 	req, err := http.NewRequest("GET", "https://1.1.1.1/dns-query?name="+host, nil)
 	if err != nil {
-		return nil, err
+		return nil, dnsmessage.RCodeServerFailure, err
 	}
 	req.Header.Set("Accept", "application/dns-json")
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, dnsmessage.RCodeServerFailure, err
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, dnsmessage.RCodeServerFailure, err
 	}
 	var answer forwarderResponse
 	json.Unmarshal([]byte(body), &answer)
+	if len(answer.Answer) == 0 {
+		return &request{
+			Host: answer.Question[0].Name + ".",
+			Type: "A",
+		}, dnsmessage.RCodeNameError, errors.New("no results from forwarder")
+	}
 	return &request{
 		Host: answer.Answer[0].Name + ".",
 		Type: "A",
 		TTL:  answer.Answer[0].TTL,
 		Data: answer.Answer[0].Data,
-	}, nil
+	}, dnsmessage.RCodeSuccess, nil
 }

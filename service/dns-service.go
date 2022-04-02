@@ -53,25 +53,33 @@ func (svc *DNSService) Listen() {
 			continue
 		}
 
-		log.Printf("received new question: %+v\n", m)
+		log.Printf("handling question for %s: %+v\n", addr, m)
+		var dnsStatusCode dnsmessage.RCode = dnsmessage.RCodeSuccess
+		var answerResources []dnsmessage.Resource
 		question := m.Questions[0].Name.String()
 		resp, ok := svc.cache.get(question)
 		if !ok {
 			log.Printf("no cached record for %s, fetching...\n", question)
-			resp, err = DoForwarderRequest(question)
-			chk(err)
-			svc.cache.set(question, *resp)
+			resp, dnsStatusCode, err = DoForwarderRequest(question)
+			log.Printf("fetched result from forwarder: %d(%+v)", dnsStatusCode, resp)
+			if err == nil {
+				svc.cache.set(question, *resp)
+			} else {
+				m.Header.RCode = dnsStatusCode
+			}
 		}
-
-		answer, err := toResource(resp)
-		chk(err)
+		if err == nil && dnsStatusCode == dnsmessage.RCodeSuccess {
+			resource, err := toResource(resp)
+			chk(err)
+			answerResources = append(answerResources, resource)
+		}
 
 		go doQuery(svc.conn, Packet{
 			addr: *addr,
 			message: dnsmessage.Message{
 				Header:      m.Header,
 				Questions:   m.Questions,
-				Answers:     []dnsmessage.Resource{answer},
+				Answers:     answerResources,
 				Authorities: m.Authorities,
 				Additionals: m.Additionals,
 			},
