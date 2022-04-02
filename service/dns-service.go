@@ -29,7 +29,9 @@ type Packet struct {
 func (svc *DNSService) Listen() {
 	var err error
 	svc.conn, err = net.ListenUDP("udp", &net.UDPAddr{Port: udpPort})
-	chk(err)
+	if err != nil {
+		panic(err)
+	}
 	svc.cache.data = make(map[string]entry)
 	log.Printf("[INFO] listening on port %d\n", udpPort)
 	defer svc.conn.Close()
@@ -51,44 +53,53 @@ func (svc *DNSService) Listen() {
 		if len(m.Questions) == 0 {
 			continue
 		}
-
-		log.Printf("handling question for %s: %+v\n", addr, m)
-		var dnsStatusCode dnsmessage.RCode = dnsmessage.RCodeSuccess
-		var answerResources []dnsmessage.Resource
-		question := m.Questions[0].Name.String()
-		requestType := m.Questions[0].Type
-		resp, ok := svc.cache.get(question + requestType.String())
-		if !ok {
-			log.Printf("no cached record for %s, fetching...\n", question)
-			resp, dnsStatusCode, err = DoForwarderRequest(question, requestType)
-			log.Printf("fetched result from forwarder: %d(%+v)", dnsStatusCode, resp)
-			if err == nil {
-				svc.cache.set(question+requestType.String(), *resp)
-			} else {
-				m.Header.RCode = dnsStatusCode
-			}
-		}
-		if err == nil && dnsStatusCode == dnsmessage.RCodeSuccess {
-			resource, err := toResource(resp)
-			chk(err)
-			answerResources = append(answerResources, resource)
-		}
-
-		message := dnsmessage.Message{
-			Header:      m.Header,
-			Questions:   m.Questions,
-			Answers:     answerResources,
-			Authorities: m.Authorities,
-			Additionals: m.Additionals,
-		}
-
-		log.Printf("sending response: %+v\n", message)
-
-		go doQuery(svc.conn, Packet{
+		go svc.handleQuestion(Packet{
 			addr:    *addr,
-			message: message,
+			message: m,
 		})
+		log.Printf("handling question for %s: %+v\n", addr, m)
 	}
+}
+
+func (svc *DNSService) handleQuestion(p Packet) {
+	var dnsStatusCode dnsmessage.RCode = dnsmessage.RCodeSuccess
+	var answerResources []dnsmessage.Resource
+	question := p.message.Questions[0]
+	questionName := question.Name.String()
+	requestType := question.Type
+	resp, ok := svc.cache.get(questionName + requestType.String())
+	if !ok {
+		log.Printf("no cached record for %s, fetching...\n", question)
+		resp, dnsStatusCode, err := DoForwarderRequest(questionName, requestType)
+		log.Printf("fetched result from forwarder: %d(%+v)", dnsStatusCode, resp)
+		if err == nil {
+			svc.cache.set(questionName+requestType.String(), *resp)
+		}
+	}
+	if dnsStatusCode == dnsmessage.RCodeSuccess {
+		resource, err := toResource(resp)
+		if err == nil {
+			answerResources = append(answerResources, resource)
+		} else {
+			log.Printf("error: %+v\n", err)
+			return
+		}
+	}
+
+	message := dnsmessage.Message{
+		Header:      p.message.Header,
+		Questions:   p.message.Questions,
+		Answers:     answerResources,
+		Authorities: p.message.Authorities,
+		Additionals: p.message.Additionals,
+	}
+
+	log.Printf("sending response: %+v\n", message)
+
+	go doQuery(svc.conn, Packet{
+		addr:    p.addr,
+		message: message,
+	})
 }
 
 func doQuery(conn *net.UDPConn, p Packet) {
@@ -100,11 +111,5 @@ func doQuery(conn *net.UDPConn, p Packet) {
 	_, err = conn.WriteToUDP(packed, &p.addr)
 	if err != nil {
 		log.Println("error sending to socket", err)
-	}
-}
-
-func chk(err error) {
-	if err != nil {
-		panic(err)
 	}
 }
