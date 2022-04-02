@@ -57,13 +57,13 @@ func (svc *DNSService) Listen() {
 		var answerResources []dnsmessage.Resource
 		question := m.Questions[0].Name.String()
 		requestType := m.Questions[0].Type
-		resp, ok := svc.cache.get(question)
+		resp, ok := svc.cache.get(question + requestType.String())
 		if !ok {
 			log.Printf("no cached record for %s, fetching...\n", question)
 			resp, dnsStatusCode, err = DoForwarderRequest(question, requestType)
 			log.Printf("fetched result from forwarder: %d(%+v)", dnsStatusCode, resp)
 			if err == nil {
-				svc.cache.set(question, *resp)
+				svc.cache.set(question+requestType.String(), *resp)
 			} else {
 				m.Header.RCode = dnsStatusCode
 			}

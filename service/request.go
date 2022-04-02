@@ -2,7 +2,10 @@ package service
 
 import (
 	"errors"
+	"log"
 	"net"
+	"strconv"
+	"strings"
 
 	"golang.org/x/net/dns/dnsmessage"
 )
@@ -12,32 +15,7 @@ type request struct {
 	TTL  uint32
 	Type string
 	Data string
-	// SOA  requestSOA
-	// MX   requestMX
-	// SRV  requestSRV
 }
-
-// type requestSOA struct {
-// 	NS      string
-// 	MBox    string
-// 	Serial  uint32
-// 	Refresh uint32
-// 	Retry   uint32
-// 	Expire  uint32
-// 	MinTTL  uint32
-// }
-
-// type requestMX struct {
-// 	Pref uint16
-// 	MX   string
-// }
-
-// type requestSRV struct {
-// 	Priority uint16
-// 	Weight   uint16
-// 	Port     uint16
-// 	Target   string
-// }
 
 func toResource(req *request) (dnsmessage.Resource, error) {
 	name, err := dnsmessage.NewName(req.Host)
@@ -69,19 +47,42 @@ func toResource(req *request) (dnsmessage.Resource, error) {
 			return none, err
 		}
 		body = &dnsmessage.CNAMEResource{CNAME: cname}
-	// case "SOA":
-	// 	fmt.Printf("\nHERE! %+v\n", req)
-	// 	resourceType = dnsmessage.TypeSOA
-	// 	soa := req.SOA
-	// 	soaNS, err := dnsmessage.NewName(soa.NS)
-	// 	if err != nil {
-	// 		return none, err
-	// 	}
-	// 	soaMBox, err := dnsmessage.NewName(soa.MBox)
-	// 	if err != nil {
-	// 		return none, err
-	// 	}
-	// 	body = &dnsmessage.SOAResource{NS: soaNS, MBox: soaMBox, Serial: soa.Serial, Refresh: soa.Refresh, Retry: soa.Retry, Expire: soa.Expire}
+	case "SOA":
+		resourceType = dnsmessage.TypeSOA
+		soa := strings.Split(req.Data, " ")
+		soaNS, err := dnsmessage.NewName(soa[0])
+		if err != nil {
+			return none, err
+		}
+		soaMbox, err := dnsmessage.NewName(soa[1])
+		if err != nil {
+			return none, err
+		}
+		serial, err := strconv.ParseUint(soa[2], 10, 32)
+		if err != nil {
+			return none, err
+		}
+		refresh, err := strconv.ParseUint(soa[3], 10, 32)
+		if err != nil {
+			return none, err
+		}
+		retry, err := strconv.ParseUint(soa[4], 10, 32)
+		if err != nil {
+			return none, err
+		}
+		expire, err := strconv.ParseUint(soa[5], 10, 32)
+		if err != nil {
+			return none, err
+		}
+
+		body = &dnsmessage.SOAResource{
+			NS:      soaNS,
+			MBox:    soaMbox,
+			Serial:  uint32(serial),
+			Refresh: uint32(refresh),
+			Retry:   uint32(retry),
+			Expire:  uint32(expire),
+		}
 	case "PTR":
 		resourceType = dnsmessage.TypePTR
 		ptr, err := dnsmessage.NewName(req.Data)
@@ -89,13 +90,18 @@ func toResource(req *request) (dnsmessage.Resource, error) {
 			return none, err
 		}
 		body = &dnsmessage.PTRResource{PTR: ptr}
-	// case "MX":
-	// 	resourceType = dnsmessage.TypeMX
-	// 	mxName, err := dnsmessage.NewName(req.Data)
-	// 	if err != nil {
-	// 		return none, err
-	// 	}
-	// 	body = &dnsmessage.MXResource{Pref: req.MX.Pref, MX: mxName}
+	case "MX":
+		resourceType = dnsmessage.TypeMX
+		parts := strings.Split(req.Data, " ")
+		mxName, err := dnsmessage.NewName(parts[1])
+		if err != nil {
+			return none, err
+		}
+		pref, err := strconv.ParseUint(parts[0], 10, 32)
+		if err != nil {
+			return none, err
+		}
+		body = &dnsmessage.MXResource{MX: mxName, Pref: uint16(pref)}
 	case "AAAA":
 		resourceType = dnsmessage.TypeAAAA
 		ip := net.ParseIP(req.Data)
@@ -105,14 +111,27 @@ func toResource(req *request) (dnsmessage.Resource, error) {
 		var ipV6 [16]byte
 		copy(ipV6[:], ip)
 		body = &dnsmessage.AAAAResource{AAAA: ipV6}
-	// case "SRV":
-	// 	resourceType = dnsmessage.TypeSRV
-	// 	srv := req.SRV
-	// 	srvTarget, err := dnsmessage.NewName(srv.Target)
-	// 	if err != nil {
-	// 		return none, err
-	// 	}
-	// 	body = &dnsmessage.SRVResource{Priority: srv.Priority, Weight: srv.Weight, Port: srv.Port, Target: srvTarget}
+	case "SRV":
+		log.Printf("result: %+v", req)
+		resourceType = dnsmessage.TypeSRV
+		srv := strings.Split(req.Data, " ")
+		priority, err := strconv.ParseUint(srv[0], 10, 32)
+		if err != nil {
+			return none, err
+		}
+		weight, err := strconv.ParseUint(srv[1], 10, 32)
+		if err != nil {
+			return none, err
+		}
+		port, err := strconv.ParseUint(srv[2], 10, 32)
+		if err != nil {
+			return none, err
+		}
+		target, err := dnsmessage.NewName(srv[3])
+		if err != nil {
+			return none, err
+		}
+		body = &dnsmessage.SRVResource{Priority: uint16(priority), Weight: uint16(weight), Port: uint16(port), Target: target}
 	case "TXT":
 		fallthrough
 	case "OPT":
