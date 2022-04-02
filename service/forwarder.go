@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"strings"
 
 	"golang.org/x/net/dns/dnsmessage"
 	"golang.org/x/net/http2"
@@ -30,12 +32,13 @@ type forwarderResponse struct {
 	} `json:"Answer"`
 }
 
-func DoForwarderRequest(host string) (*request, dnsmessage.RCode, error) {
+func DoForwarderRequest(host string, requestType dnsmessage.Type) (*request, dnsmessage.RCode, error) {
 	transport := &http2.Transport{}
 	client := &http.Client{
 		Transport: transport,
 	}
-	req, err := http.NewRequest("GET", "https://1.1.1.1/dns-query?name="+host, nil)
+	trimmedRequestType := strings.TrimPrefix(requestType.String(), "Type")
+	req, err := http.NewRequest("GET", "https://1.1.1.1/dns-query?name="+host+"&type="+trimmedRequestType, nil)
 	if err != nil {
 		return nil, dnsmessage.RCodeServerFailure, err
 	}
@@ -52,16 +55,21 @@ func DoForwarderRequest(host string) (*request, dnsmessage.RCode, error) {
 	}
 	var answer forwarderResponse
 	json.Unmarshal([]byte(body), &answer)
+	log.Printf("cloudflare response: %+v\n", answer)
 	if len(answer.Answer) == 0 {
 		return &request{
 			Host: answer.Question[0].Name + ".",
-			Type: "A",
+			Type: trimmedRequestType,
 		}, dnsmessage.RCodeNameError, errors.New("no results from forwarder")
 	}
-	return &request{
+
+	request := &request{
 		Host: answer.Answer[0].Name + ".",
-		Type: "A",
+		Type: trimmedRequestType,
 		TTL:  answer.Answer[0].TTL,
 		Data: answer.Answer[0].Data,
-	}, dnsmessage.RCodeSuccess, nil
+	}
+
+	log.Printf("built request: %+v\n", request)
+	return request, dnsmessage.RCodeSuccess, nil
 }

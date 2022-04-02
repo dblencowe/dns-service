@@ -1,7 +1,6 @@
 package service
 
 import (
-	"fmt"
 	"log"
 	"net"
 
@@ -57,10 +56,11 @@ func (svc *DNSService) Listen() {
 		var dnsStatusCode dnsmessage.RCode = dnsmessage.RCodeSuccess
 		var answerResources []dnsmessage.Resource
 		question := m.Questions[0].Name.String()
+		requestType := m.Questions[0].Type
 		resp, ok := svc.cache.get(question)
 		if !ok {
 			log.Printf("no cached record for %s, fetching...\n", question)
-			resp, dnsStatusCode, err = DoForwarderRequest(question)
+			resp, dnsStatusCode, err = DoForwarderRequest(question, requestType)
 			log.Printf("fetched result from forwarder: %d(%+v)", dnsStatusCode, resp)
 			if err == nil {
 				svc.cache.set(question, *resp)
@@ -74,15 +74,19 @@ func (svc *DNSService) Listen() {
 			answerResources = append(answerResources, resource)
 		}
 
+		message := dnsmessage.Message{
+			Header:      m.Header,
+			Questions:   m.Questions,
+			Answers:     answerResources,
+			Authorities: m.Authorities,
+			Additionals: m.Additionals,
+		}
+
+		log.Printf("sending response: %+v\n", message)
+
 		go doQuery(svc.conn, Packet{
-			addr: *addr,
-			message: dnsmessage.Message{
-				Header:      m.Header,
-				Questions:   m.Questions,
-				Answers:     answerResources,
-				Authorities: m.Authorities,
-				Additionals: m.Additionals,
-			},
+			addr:    *addr,
+			message: message,
 		})
 	}
 }
@@ -90,12 +94,12 @@ func (svc *DNSService) Listen() {
 func doQuery(conn *net.UDPConn, p Packet) {
 	packed, err := p.message.Pack()
 	if err != nil {
-		fmt.Println(err)
+		log.Println("error packing", err)
 		return
 	}
 	_, err = conn.WriteToUDP(packed, &p.addr)
 	if err != nil {
-		fmt.Println(err)
+		log.Println("error sending to socket", err)
 	}
 }
 
