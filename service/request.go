@@ -10,14 +10,14 @@ import (
 	"golang.org/x/net/dns/dnsmessage"
 )
 
-type request struct {
+type Request struct {
 	Host string
 	TTL  uint32
 	Type string
 	Data string
 }
 
-func toResource(req *request) (dnsmessage.Resource, error) {
+func (req *Request) ToResource() (dnsmessage.Resource, error) {
 	name, err := dnsmessage.NewName(req.Host)
 	none := dnsmessage.Resource{}
 	if err != nil {

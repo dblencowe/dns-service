@@ -32,7 +32,7 @@ type forwarderResponse struct {
 	} `json:"Answer"`
 }
 
-func DoForwarderRequest(host string, requestType dnsmessage.Type) (*request, dnsmessage.RCode, error) {
+func DoForwarderRequest(host string, requestType dnsmessage.Type) (*Request, dnsmessage.RCode, error) {
 	transport := &http2.Transport{}
 	client := &http.Client{
 		Transport: transport,
@@ -57,13 +57,13 @@ func DoForwarderRequest(host string, requestType dnsmessage.Type) (*request, dns
 	json.Unmarshal([]byte(body), &answer)
 	log.Printf("cloudflare response: %+v\n", answer)
 	if len(answer.Answer) == 0 {
-		return &request{
+		return &Request{
 			Host: answer.Question[0].Name + ".",
 			Type: trimmedRequestType,
 		}, dnsmessage.RCodeNameError, errors.New("no results from forwarder")
 	}
 
-	request := &request{
+	request := &Request{
 		Host: answer.Answer[0].Name + ".",
 		Type: trimmedRequestType,
 		TTL:  answer.Answer[0].TTL,

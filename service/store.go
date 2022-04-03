@@ -11,11 +11,11 @@ type store struct {
 }
 
 type entry struct {
-	Request request
+	Request Request
 	Created int64
 }
 
-func (s *store) get(key string) (*request, bool) {
+func (s *store) get(key string) (*Request, bool) {
 	s.RLock()
 	e, ok := s.data[key]
 	s.RUnlock()
@@ -27,7 +27,7 @@ func (s *store) get(key string) (*request, bool) {
 	return &e.Request, ok
 }
 
-func (s *store) set(key string, req request) bool {
+func (s *store) set(key string, req Request) bool {
 	changed := false
 	s.Lock()
 	if _, ok := s.data[key]; ok {

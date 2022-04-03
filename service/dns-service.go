@@ -67,17 +67,18 @@ func (svc *DNSService) handleQuestion(p Packet) {
 	question := p.message.Questions[0]
 	questionName := question.Name.String()
 	requestType := question.Type
-	resp, ok := svc.cache.get(questionName + requestType.String())
+	cacheKey := questionName + requestType.String()
+	resp, ok := svc.cache.get(cacheKey)
 	if !ok {
 		log.Printf("no cached record for %s, fetching...\n", question)
 		resp, dnsStatusCode, err := DoForwarderRequest(questionName, requestType)
 		log.Printf("fetched result from forwarder: %d(%+v)", dnsStatusCode, resp)
 		if err == nil {
-			svc.cache.set(questionName+requestType.String(), *resp)
+			svc.cache.set(cacheKey, *resp)
 		}
 	}
 	if dnsStatusCode == dnsmessage.RCodeSuccess {
-		resource, err := toResource(resp)
+		resource, err := resp.ToResource()
 		if err == nil {
 			answerResources = append(answerResources, resource)
 		} else {
