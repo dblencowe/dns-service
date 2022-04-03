@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"golang.org/x/net/dns/dnsmessage"
-	"golang.org/x/net/http2"
 )
 
 // https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/make-api-requests/dns-json/
@@ -32,44 +31,42 @@ type forwarderResponse struct {
 	} `json:"Answer"`
 }
 
-func DoForwarderRequest(host string, requestType dnsmessage.Type) (*Request, dnsmessage.RCode, error) {
-	transport := &http2.Transport{}
-	client := &http.Client{
-		Transport: transport,
-	}
+func DoForwarderRequest(httpClient *http.Client, host string, requestType dnsmessage.Type) (*[]Request, dnsmessage.RCode, error) {
 	trimmedRequestType := strings.TrimPrefix(requestType.String(), "Type")
-	req, err := http.NewRequest("GET", "https://1.1.1.1/dns-query?name="+host+"&type="+trimmedRequestType, nil)
+	req, err := http.NewRequest(http.MethodGet, "https://1.1.1.1/dns-query?name="+host+"&type="+trimmedRequestType, nil)
 	if err != nil {
-		return nil, dnsmessage.RCodeServerFailure, err
+		return &[]Request{}, dnsmessage.RCodeServerFailure, err
 	}
 	req.Header.Set("Accept", "application/dns-json")
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, dnsmessage.RCodeServerFailure, err
+		return &[]Request{}, dnsmessage.RCodeServerFailure, err
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, dnsmessage.RCodeServerFailure, err
+		return &[]Request{}, dnsmessage.RCodeServerFailure, err
 	}
-	var answer forwarderResponse
-	json.Unmarshal([]byte(body), &answer)
-	log.Printf("cloudflare response: %+v\n", answer)
-	if len(answer.Answer) == 0 {
-		return &Request{
-			Host: answer.Question[0].Name + ".",
+	var apiResponse forwarderResponse
+	json.Unmarshal([]byte(body), &apiResponse)
+	log.Printf("cloudflare response: %+v\n", apiResponse)
+	if len(apiResponse.Answer) == 0 {
+		return &[]Request{{
+			Host: apiResponse.Question[0].Name + ".",
 			Type: trimmedRequestType,
-		}, dnsmessage.RCodeNameError, errors.New("no results from forwarder")
+		}}, dnsmessage.RCodeNameError, errors.New("no results from forwarder")
+	}
+	var answers []Request
+	for _, answer := range apiResponse.Answer {
+		answers = append(answers, Request{
+			Host: answer.Name + ".",
+			Type: trimmedRequestType,
+			TTL:  answer.TTL,
+			Data: answer.Data,
+		})
 	}
 
-	request := &Request{
-		Host: answer.Answer[0].Name + ".",
-		Type: trimmedRequestType,
-		TTL:  answer.Answer[0].TTL,
-		Data: answer.Answer[0].Data,
-	}
-
-	log.Printf("built request: %+v\n", request)
-	return request, dnsmessage.RCodeSuccess, nil
+	log.Printf("built request: %+v\n", answers)
+	return &answers, dnsmessage.RCodeSuccess, nil
 }

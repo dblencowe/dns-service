@@ -11,34 +11,34 @@ type store struct {
 }
 
 type entry struct {
-	Request Request
-	Created int64
+	Requests []Request
+	Created  int64
 }
 
-func (s *store) get(key string) (*Request, bool) {
+func (s *store) get(key string) (*[]Request, bool) {
 	s.RLock()
 	e, ok := s.data[key]
 	s.RUnlock()
 	now := time.Now().Unix()
-	if e.Request.TTL > 1 && (e.Created+int64(e.Request.TTL) < now) {
+	if len(e.Requests) > 0 && e.Requests[0].TTL > 1 && (e.Created+int64(e.Requests[0].TTL) < now) {
 		s.remove(key)
 		return nil, false
 	}
-	return &e.Request, ok
+	return &e.Requests, ok
 }
 
-func (s *store) set(key string, req Request) bool {
+func (s *store) set(key string, reqs []Request) bool {
 	changed := false
 	s.Lock()
 	if _, ok := s.data[key]; ok {
 		e := s.data[key]
-		e.Request = req
+		e.Requests = reqs
 		s.data[key] = e
 		changed = true
 	} else {
 		e := entry{
-			Request: req,
-			Created: time.Now().Unix(),
+			Requests: reqs,
+			Created:  time.Now().Unix(),
 		}
 		s.data[key] = e
 		changed = true

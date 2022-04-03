@@ -1,8 +1,7 @@
 package service
 
 import (
-	"errors"
-	"log"
+	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -29,10 +28,17 @@ func (req *Request) ToResource() (dnsmessage.Resource, error) {
 	case "A":
 		resourceType = dnsmessage.TypeA
 		ip := net.ParseIP(req.Data)
-		if ip == nil {
-			return none, errors.New("invalid IP supplied")
+		if ip != nil {
+			//
+			body = &dnsmessage.AResource{A: [4]byte{ip[12], ip[13], ip[14], ip[15]}}
+			break
 		}
-		body = &dnsmessage.AResource{A: [4]byte{ip[12], ip[13], ip[14], ip[15]}}
+
+		name, err := dnsmessage.NewName(req.Data)
+		if err != nil {
+			return none, fmt.Errorf("(%+v) invalid IP / DNS Name supplied", req)
+		}
+		body = &dnsmessage.CNAMEResource{CNAME: name}
 	case "NS":
 		resourceType = dnsmessage.TypeNS
 		ns, err := dnsmessage.NewName(req.Data)
@@ -105,14 +111,19 @@ func (req *Request) ToResource() (dnsmessage.Resource, error) {
 	case "AAAA":
 		resourceType = dnsmessage.TypeAAAA
 		ip := net.ParseIP(req.Data)
-		if ip == nil {
-			return none, errors.New("invalid ip suppled")
+		if ip != nil {
+			var ipV6 [16]byte
+			copy(ipV6[:], ip)
+			body = &dnsmessage.AAAAResource{AAAA: ipV6}
+			break
 		}
-		var ipV6 [16]byte
-		copy(ipV6[:], ip)
-		body = &dnsmessage.AAAAResource{AAAA: ipV6}
+
+		name, err := dnsmessage.NewName(req.Data)
+		if err != nil {
+			return none, fmt.Errorf("(%+v) invalid IP / DNS Name supplied", req)
+		}
+		body = &dnsmessage.CNAMEResource{CNAME: name}
 	case "SRV":
-		log.Printf("result: %+v", req)
 		resourceType = dnsmessage.TypeSRV
 		srv := strings.Split(req.Data, " ")
 		priority, err := strconv.ParseUint(srv[0], 10, 32)
@@ -137,7 +148,7 @@ func (req *Request) ToResource() (dnsmessage.Resource, error) {
 	case "OPT":
 		fallthrough
 	default:
-		return none, errors.New("unsupported record type")
+		return none, fmt.Errorf("(%+v) unsupported record type", req)
 	}
 
 	return dnsmessage.Resource{

@@ -3,8 +3,10 @@ package service
 import (
 	"log"
 	"net"
+	"net/http"
 
 	"golang.org/x/net/dns/dnsmessage"
+	"golang.org/x/net/http2"
 )
 
 const (
@@ -18,8 +20,9 @@ type DNSServer interface {
 }
 
 type DNSService struct {
-	conn  *net.UDPConn
-	cache store
+	conn       *net.UDPConn
+	cache      store
+	httpClient *http.Client
 }
 
 type Packet struct {
@@ -27,40 +30,52 @@ type Packet struct {
 	message dnsmessage.Message
 }
 
-func (svc *DNSService) Query(host string, requestType dnsmessage.Type) (answerResources []dnsmessage.Resource, dnsStatusCode dnsmessage.RCode) {
-	dnsStatusCode = dnsmessage.RCodeSuccess
-	cacheKey := host + requestType.String()
-	resp, ok := svc.cache.get(cacheKey)
-	if !ok {
-		log.Printf("no cached record for %s, fetching...\n", host)
-		resp, dnsStatusCode, err := DoForwarderRequest(host, requestType)
-		log.Printf("fetched result from forwarder: %d(%+v)", dnsStatusCode, resp)
-		if err == nil {
-			svc.cache.set(cacheKey, *resp)
-		}
-	}
-	if dnsStatusCode == dnsmessage.RCodeSuccess {
-		resource, err := resp.ToResource()
-		if err == nil {
-			answerResources = append(answerResources, resource)
-		} else {
-			log.Printf("error: %+v\n", err)
-		}
-	}
-
-	return
-}
-
-func (svc *DNSService) Listen() {
+func InitDNSService() (svc DNSService) {
 	var err error
 	svc.conn, err = net.ListenUDP("udp", &net.UDPAddr{Port: udpPort})
+	log.Printf("[INFO] listening on port %d\n", udpPort)
+	svc.cache.data = make(map[string]entry)
 	if err != nil {
 		panic(err)
 	}
-	svc.cache.data = make(map[string]entry)
-	log.Printf("[INFO] listening on port %d\n", udpPort)
-	defer svc.conn.Close()
+	transport := &http2.Transport{}
+	svc.httpClient = &http.Client{
+		Transport: transport,
+	}
+	return
+}
 
+func (svc *DNSService) Query(host string, requestType dnsmessage.Type) (answerResources []dnsmessage.Resource, dnsStatusCode dnsmessage.RCode) {
+	var err error
+	dnsStatusCode = dnsmessage.RCodeSuccess
+	cacheKey := host + requestType.String()
+	ok := false
+	answers, ok := svc.cache.get(cacheKey)
+	if !ok {
+		log.Printf("no cached record for %s, fetching...\n", host)
+		answers, dnsStatusCode, err = DoForwarderRequest(svc.httpClient, host, requestType)
+		log.Printf("fetched result from forwarder: status[%d](%+v)", dnsStatusCode, answers)
+		if err == nil {
+			svc.cache.set(cacheKey, *answers)
+		}
+	}
+	if dnsStatusCode == dnsmessage.RCodeSuccess {
+		for _, answer := range *answers {
+			resource, err := answer.ToResource()
+			if err == nil {
+				answerResources = append(answerResources, resource)
+			} else {
+				log.Printf("error: %+v\n", err)
+			}
+		}
+
+	}
+
+	return answerResources, dnsStatusCode
+}
+
+func (svc *DNSService) Listen() {
+	defer svc.conn.Close()
 	for {
 		buf := make([]byte, packetLen)
 		_, addr, err := svc.conn.ReadFromUDP(buf)
@@ -79,23 +94,26 @@ func (svc *DNSService) Listen() {
 			continue
 		}
 
-		question := m.Questions[0]
-		questionName := question.Name.String()
-		requestType := question.Type
+		go func(m dnsmessage.Message) {
+			question := m.Questions[0]
+			questionName := question.Name.String()
+			requestType := question.Type
 
-		answerResources, responseStatusCode := svc.Query(questionName, requestType)
-		m.Header.RCode = responseStatusCode
+			answerResources, responseStatusCode := svc.Query(questionName, requestType)
+			log.Printf("%s %s results: %s %+v\n", questionName, requestType.String(), responseStatusCode, answerResources)
+			m.Header.RCode = responseStatusCode
 
-		go svc.sendPacket(Packet{
-			addr: *addr,
-			message: dnsmessage.Message{
-				Header:      m.Header,
-				Questions:   m.Questions,
-				Answers:     answerResources,
-				Authorities: m.Authorities,
-				Additionals: m.Additionals,
-			},
-		})
+			svc.sendPacket(Packet{
+				addr: *addr,
+				message: dnsmessage.Message{
+					Header:      m.Header,
+					Questions:   m.Questions,
+					Answers:     answerResources,
+					Authorities: m.Authorities,
+					Additionals: m.Additionals,
+				},
+			})
+		}(m)
 	}
 }
 
