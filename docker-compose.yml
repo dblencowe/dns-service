@@ -1,0 +1,33 @@
+version: "3.9"  # optional since v1.27.0
+services:
+  dns:
+    build: .
+    volumes:
+      - .:/code
+      - logvolume01:/var/log
+    links:
+      - client
+    networks:
+      vpcbr:
+        ipv4_address: 10.5.0.5
+  client:
+    image: yauritux/busybox-curl
+    command:
+      - /bin/curl 
+      - -vvv 
+      - "-4" 
+      - https://gist.githubusercontent.com/dblencowe/8a8e0481f9acb0b82c5367d4b7d6bc9d/raw/2f58d9941bda87f9ddb0d9344c37d0f79f84c976/.zshrc
+    dns:
+      - 10.5.0.5
+    networks:
+      vpcbr:
+        ipv4_address: 10.5.0.6
+volumes:
+  logvolume01: {}
+networks:
+  vpcbr:
+    driver: bridge
+    ipam:
+     config:
+       - subnet: 10.5.0.0/16
+         gateway: 10.5.0.1
