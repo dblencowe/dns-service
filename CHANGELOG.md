@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.1.1](https://github.com/dblencowe/dns-service/compare/v1.1.0...v1.1.1) (2022-04-04)
+
+
+### Bug Fixes
+
+* add README and ci files ([afd69d8](https://github.com/dblencowe/dns-service/commit/afd69d858e5bb32004b902519a77f0c00b46a947))
+
 ## 1.1.0 (2022-04-04)
 
 
