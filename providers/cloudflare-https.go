@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"strings"
 
+	"github.com/dblencowe/dns-service/output"
 	"github.com/dblencowe/dns-service/request"
 	"golang.org/x/net/dns/dnsmessage"
 	"golang.org/x/net/http2"
@@ -78,7 +78,7 @@ func (provider *CloudflareHttpsDNSProvider) Query(hostname string, recordType dn
 	}
 	var formattedResponse cloudflareResponse
 	json.Unmarshal([]byte(body), &formattedResponse)
-	log.Println("cloudflare response: %+v\n", formattedResponse)
+	output.Println(output.Debug, "cloudflare response: %+v\n", formattedResponse)
 	if len(formattedResponse.Answer) == 0 {
 		return &[]request.Request{{
 			Host: formattedResponse.Question[0].Name + ".",
@@ -95,6 +95,6 @@ func (provider *CloudflareHttpsDNSProvider) Query(hostname string, recordType dn
 			Data: answer.Data,
 		})
 	}
-	log.Printf("built request: %+v\n", answers)
+	output.Println(output.Debug, "built request: %+v\n", answers)
 	return &answers, dnsmessage.RCodeSuccess, nil
 }
