@@ -1,10 +1,10 @@
 package service
 
 import (
-	"log"
 	"net"
 	"net/http"
 
+	"github.com/dblencowe/dns-service/output"
 	"github.com/dblencowe/dns-service/providers"
 	"golang.org/x/net/dns/dnsmessage"
 	"golang.org/x/net/http2"
@@ -35,7 +35,7 @@ type Packet struct {
 func InitDNSService(provider providers.CloudflareHttpsDNSProvider) (svc DNSService) {
 	var err error
 	svc.conn, err = net.ListenUDP("udp", &net.UDPAddr{Port: udpPort})
-	log.Printf("[INFO] listening on port %d\n", udpPort)
+	output.Println(output.Info, "[INFO] listening on port %d\n", udpPort)
 	svc.cache.data = make(map[string]entry)
 	svc.provider = &provider
 	if err != nil {
@@ -55,9 +55,9 @@ func (svc *DNSService) Query(host string, requestType dnsmessage.Type) (answerRe
 	ok := false
 	answers, ok := svc.cache.get(cacheKey)
 	if !ok {
-		log.Printf("no cached record for %s, fetching...\n", host)
+		output.Println(output.Debug, "no cached record for %s, fetching...\n", host)
 		answers, dnsStatusCode, err = svc.provider.Query(host, requestType)
-		log.Printf("fetched result from forwarder: status[%d](%+v)", dnsStatusCode, answers)
+		output.Println(output.Debug, "fetched result from forwarder: status[%d](%+v)", dnsStatusCode, answers)
 		if err == nil {
 			svc.cache.set(cacheKey, *answers)
 		}
@@ -68,7 +68,7 @@ func (svc *DNSService) Query(host string, requestType dnsmessage.Type) (answerRe
 			if err == nil {
 				answerResources = append(answerResources, resource)
 			} else {
-				log.Printf("error: %+v\n", err)
+				output.Println(output.Error, "error: %+v", err)
 			}
 		}
 
@@ -83,13 +83,13 @@ func (svc *DNSService) Listen() {
 		buf := make([]byte, packetLen)
 		_, addr, err := svc.conn.ReadFromUDP(buf)
 		if err != nil {
-			log.Println(err)
+			output.Println(output.Error, "%+v", err)
 			continue
 		}
 		var m dnsmessage.Message
 		err = m.Unpack(buf)
 		if err != nil {
-			log.Println(err)
+			output.Println(output.Error, "%+v", err)
 			continue
 		}
 
@@ -103,7 +103,7 @@ func (svc *DNSService) Listen() {
 			requestType := question.Type
 
 			answerResources, responseStatusCode := svc.Query(questionName, requestType)
-			log.Printf("%s %s results: %s %+v\n", questionName, requestType.String(), responseStatusCode, answerResources)
+			output.Println(output.Debug, "%s %s results: %s %+v\n", questionName, requestType.String(), responseStatusCode, answerResources)
 			m.Header.RCode = responseStatusCode
 			m.Header.Response = true
 
@@ -124,11 +124,11 @@ func (svc *DNSService) Listen() {
 func (svc *DNSService) sendPacket(p Packet) {
 	packed, err := p.message.Pack()
 	if err != nil {
-		log.Println("error packing", err)
+		output.Println(output.Error, "error packing: %+v", err)
 		return
 	}
 	_, err = svc.conn.WriteToUDP(packed, &p.addr)
 	if err != nil {
-		log.Println("error sending to socket", err)
+		output.Println(output.Error, "error sending to socket", err)
 	}
 }
