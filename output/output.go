@@ -23,8 +23,8 @@ func Println(targetLevel OutputLevel, line string, args ...interface{}) {
 		line = line + "\n"
 	}
 	t := time.Now()
-	line = "%s: " + line
-	fmt.Printf(line, t.Format(time.RFC3339), args)
+	formattedLine := fmt.Sprintf(line, args...)
+	fmt.Printf("%s: %s", t.Format(time.RFC3339), formattedLine)
 }
 
 func outputLevelFromEnv() (outputLevel OutputLevel) {

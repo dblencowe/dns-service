@@ -23,6 +23,19 @@ To see more verbose information
 sudo OUTPUT_LEVEL=0 ./dns-service
 ```
 
+### Filtering requests by domain
+The server has the ability to redirect domains to a custom IP, often used for ad-blocking or internal hosts.
+To setup a filter list create a text file like below, with each record on a new line
+```text
+127.0.0.1 example1.com
+127.0.0.1 example2.com
+```
+
+Then start the server with the following environment variable set
+```bash
+sudo FILTER_FILE=myfilters.txt ./dns-service
+```
+
 ## DNS Library
 
 More to come
