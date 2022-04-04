@@ -105,6 +105,7 @@ func (svc *DNSService) Listen() {
 			answerResources, responseStatusCode := svc.Query(questionName, requestType)
 			log.Printf("%s %s results: %s %+v\n", questionName, requestType.String(), responseStatusCode, answerResources)
 			m.Header.RCode = responseStatusCode
+			m.Header.Response = true
 
 			svc.sendPacket(Packet{
 				addr: *addr,
