@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/dblencowe/dns-service/providers"
 	"golang.org/x/net/dns/dnsmessage"
 	"golang.org/x/net/http2"
 )
@@ -23,6 +24,7 @@ type DNSService struct {
 	conn       *net.UDPConn
 	cache      store
 	httpClient *http.Client
+	provider   *providers.CloudflareHttpsDNSProvider
 }
 
 type Packet struct {
@@ -30,11 +32,12 @@ type Packet struct {
 	message dnsmessage.Message
 }
 
-func InitDNSService() (svc DNSService) {
+func InitDNSService(provider providers.CloudflareHttpsDNSProvider) (svc DNSService) {
 	var err error
 	svc.conn, err = net.ListenUDP("udp", &net.UDPAddr{Port: udpPort})
 	log.Printf("[INFO] listening on port %d\n", udpPort)
 	svc.cache.data = make(map[string]entry)
+	svc.provider = &provider
 	if err != nil {
 		panic(err)
 	}
@@ -53,7 +56,7 @@ func (svc *DNSService) Query(host string, requestType dnsmessage.Type) (answerRe
 	answers, ok := svc.cache.get(cacheKey)
 	if !ok {
 		log.Printf("no cached record for %s, fetching...\n", host)
-		answers, dnsStatusCode, err = DoForwarderRequest(svc.httpClient, host, requestType)
+		answers, dnsStatusCode, err = svc.provider.Query(host, requestType)
 		log.Printf("fetched result from forwarder: status[%d](%+v)", dnsStatusCode, answers)
 		if err == nil {
 			svc.cache.set(cacheKey, *answers)

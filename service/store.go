@@ -3,6 +3,8 @@ package service
 import (
 	"sync"
 	"time"
+
+	"github.com/dblencowe/dns-service/request"
 )
 
 type store struct {
@@ -11,11 +13,11 @@ type store struct {
 }
 
 type entry struct {
-	Requests []Request
+	Requests []request.Request
 	Created  int64
 }
 
-func (s *store) get(key string) (*[]Request, bool) {
+func (s *store) get(key string) (*[]request.Request, bool) {
 	s.RLock()
 	e, ok := s.data[key]
 	s.RUnlock()
@@ -27,7 +29,7 @@ func (s *store) get(key string) (*[]Request, bool) {
 	return &e.Requests, ok
 }
 
-func (s *store) set(key string, reqs []Request) bool {
+func (s *store) set(key string, reqs []request.Request) bool {
 	changed := false
 	s.Lock()
 	if _, ok := s.data[key]; ok {

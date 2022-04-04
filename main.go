@@ -1,8 +1,12 @@
 package main
 
-import service "github.com/dblencowe/dns-service/service"
+import (
+	"github.com/dblencowe/dns-service/providers"
+	service "github.com/dblencowe/dns-service/service"
+)
 
 func main() {
-	svc := service.InitDNSService()
+	provider := providers.InitCloudflareHttpsDNSProvider()
+	svc := service.InitDNSService(*provider)
 	svc.Listen()
 }

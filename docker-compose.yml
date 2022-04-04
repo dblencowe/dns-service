@@ -26,6 +26,7 @@ volumes:
   logvolume01: {}
 networks:
   vpcbr:
+    enable_ipv6: false
     driver: bridge
     ipam:
      config:
