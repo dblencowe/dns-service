@@ -3,9 +3,11 @@ package service
 import (
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/dblencowe/dns-service/output"
 	"github.com/dblencowe/dns-service/providers"
+	"github.com/dblencowe/dns-service/request"
 	"golang.org/x/net/dns/dnsmessage"
 	"golang.org/x/net/http2"
 )
@@ -25,6 +27,7 @@ type DNSService struct {
 	cache      store
 	httpClient *http.Client
 	provider   *providers.CloudflareHttpsDNSProvider
+	filters    *FilterService
 }
 
 type Packet struct {
@@ -32,12 +35,13 @@ type Packet struct {
 	message dnsmessage.Message
 }
 
-func InitDNSService(provider providers.CloudflareHttpsDNSProvider) (svc DNSService) {
+func InitDNSService(provider providers.CloudflareHttpsDNSProvider, filters *FilterService) (svc DNSService) {
 	var err error
 	svc.conn, err = net.ListenUDP("udp", &net.UDPAddr{Port: udpPort})
 	output.Println(output.Info, "[INFO] listening on port %d\n", udpPort)
 	svc.cache.data = make(map[string]entry)
 	svc.provider = &provider
+	svc.filters = filters
 	if err != nil {
 		panic(err)
 	}
@@ -53,6 +57,23 @@ func (svc *DNSService) Query(host string, requestType dnsmessage.Type) (answerRe
 	dnsStatusCode = dnsmessage.RCodeSuccess
 	cacheKey := host + requestType.String()
 	ok := false
+
+	maskedIp, filtered := svc.filters.Filter(host)
+	if filtered {
+		mockRequest := request.Request{
+			Host: host,
+			TTL:  500,
+			Type: strings.TrimPrefix(requestType.String(), "Type"),
+			Data: maskedIp.String(),
+		}
+		resource, err := mockRequest.ToResource()
+		if err == nil {
+			return []dnsmessage.Resource{resource}, dnsStatusCode
+		} else {
+			output.Println(output.Error, "error parsing filter: %v", err)
+		}
+	}
+
 	answers, ok := svc.cache.get(cacheKey)
 	if !ok {
 		output.Println(output.Debug, "no cached record for %s, fetching...\n", host)
